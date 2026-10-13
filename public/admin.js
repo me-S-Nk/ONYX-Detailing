@@ -1,0 +1,23 @@
+(() => {
+  const $ = s => document.querySelector(s);
+  const $$ = s => [...document.querySelectorAll(s)];
+  let token = sessionStorage.getItem('d24_admin_token') || '';
+  let currentTab = 'bookings';
+  const labels = { new: 'Новая', contacted: 'Связались', confirmed: 'Подтверждена', completed: 'Завершена', cancelled: 'Отменена', pending: 'На проверке', approved: 'Одобрен', rejected: 'Отклонён' };
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  async function api(url, options = {}) { const res = await fetch(url, { ...options, headers: { 'Content-Type':'application/json', Authorization: `Bearer ${token}`, ...(options.headers || {}) } }); const data = await res.json().catch(() => ({})); if (!res.ok) throw new Error(data.error || 'Ошибка запроса'); return data; }
+  function date(value) { try { return new Date(value).toLocaleString('ru-RU'); } catch { return value; } }
+  function status(value) { return `<span class="status ${esc(value)}">${esc(labels[value] || value)}</span>`; }
+  function render(data) {
+    $('#booking-count').textContent = data.bookings.length; $('#review-count').textContent = data.reviews.length;
+    $('#bookings-panel').innerHTML = data.bookings.length ? data.bookings.map(b => `<article class="record"><header><div><h3>${esc(b.name)}</h3><small>${esc(date(b.createdAt))}</small></div>${status(b.status)}</header><dl><dt>Телефон</dt><dd><a href="tel:${esc(b.phone)}">${esc(b.phone)}</a></dd><dt>Услуга</dt><dd>${esc(b.service)}</dd><dt>Автомобиль</dt><dd>${esc(b.car || 'Не указан')}</dd><dt>Дата</dt><dd>${esc(b.date || 'Не указана')} ${esc(b.time || '')}</dd></dl>${b.comment ? `<p>${esc(b.comment)}</p>` : ''}<div class="actions"><button data-booking-status="contacted" data-id="${esc(b.id)}">Связались</button><button data-booking-status="confirmed" data-id="${esc(b.id)}">Подтвердить</button><button data-booking-status="completed" data-id="${esc(b.id)}">Завершена</button><button class="light" data-booking-status="cancelled" data-id="${esc(b.id)}">Отменить</button></div></article>`).join('') : '<div class="empty">Пока нет заявок. Новые обращения появятся здесь.</div>';
+    $('#reviews-panel').innerHTML = data.reviews.length ? data.reviews.map(r => `<article class="record"><header><div><h3>${esc(r.name)} · ${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</h3><small>${esc(date(r.createdAt))}</small></div>${status(r.status)}</header><dl><dt>Услуга</dt><dd>${esc(r.service || 'Не указана')}</dd></dl><p>${esc(r.text)}</p><div class="actions"><button data-review-status="approved" data-id="${esc(r.id)}">Одобрить</button><button class="light" data-review-status="pending" data-id="${esc(r.id)}">На проверку</button><button class="light" data-review-status="rejected" data-id="${esc(r.id)}">Отклонить</button></div></article>`).join('') : '<div class="empty">Пока нет отзывов.</div>';
+  }
+  async function load() { $('#notice').textContent = 'Загружаем данные…'; try { const data = await api('/api/admin/data'); $('#login').hidden = true; $('#dashboard').hidden = false; render(data); $('#notice').textContent = ''; } catch (e) { $('#notice').textContent = e.message; if (e.message.includes('Нет доступа')) { $('#dashboard').hidden = true; $('#login').hidden = false; } } }
+  $('#login-form').addEventListener('submit', async e => { e.preventDefault(); token = $('#token').value.trim(); try { await api('/api/admin/data'); sessionStorage.setItem('d24_admin_token', token); $('#login-error').textContent = ''; await load(); } catch (err) { $('#login-error').textContent = err.message; } });
+  $('#refresh').addEventListener('click', load);
+  $('#logout').addEventListener('click', () => { token = ''; sessionStorage.removeItem('d24_admin_token'); $('#dashboard').hidden = true; $('#login').hidden = false; $('#token').value = ''; });
+  $$('.tab').forEach(button => button.addEventListener('click', () => { currentTab = button.dataset.tab; $$('.tab').forEach(b => b.classList.toggle('active', b === button)); $('#bookings-panel').hidden = currentTab !== 'bookings'; $('#reviews-panel').hidden = currentTab !== 'reviews'; }));
+  document.addEventListener('click', async e => { const b = e.target.closest('[data-booking-status]'); const r = e.target.closest('[data-review-status]'); try { if (b) await api(`/api/admin/bookings/${encodeURIComponent(b.dataset.id)}`, { method:'PATCH', body: JSON.stringify({ status: b.dataset.bookingStatus }) }); if (r) await api(`/api/admin/reviews/${encodeURIComponent(r.dataset.id)}`, { method:'PATCH', body: JSON.stringify({ status: r.dataset.reviewStatus }) }); if (b || r) await load(); } catch (err) { $('#notice').textContent = err.message; } });
+  if (token) load();
+})();
